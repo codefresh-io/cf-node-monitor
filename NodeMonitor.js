@@ -122,15 +122,15 @@ class NodeMonitor {
         .catch(err => Q.reject(err));
     }
 
-    updateNodeStatuses(){
+    updateNodeStatuses() {
         var checkId = "service:docker-node";
 
-        return Q.all([
-               () => this.getSwarmStatus(),
-               () => consul.health.service({service: 'docker-node'})])
-        .spread(function(swarmStatus, nodeServices){
+        return Q.all([ this.getSwarmStatus(),
+                       consul.health.service({service: 'docker-node'})])
+        .spread(function (swarmStatus, nodeServices) {
             var consulNodeCheckUpdates = [];
-            for (var s in nodeServices){
+            for (var i=0; i<nodeServices.length; i++) {
+                var s = nodeServices[i];
                 var checkStatusSwarm, checkStatusConsul, checkOutputSwarm, checkOutputConsul;
 
                 // Parse current service status from consul
@@ -144,7 +144,7 @@ class NodeMonitor {
 
                 // Parse current node status from swarm
                 var nodeRef = util.format('%s:%s', s.Service.Address, s.Service.Port);
-                if (! swarmStatus.NodesData || ! swarmStatus.NodesData[nodeRef]) {
+                if (!swarmStatus.NodesData || !swarmStatus.NodesData[nodeRef]) {
                     checkStatusSwarm = 'failing';
                     checkOutputSwarm = 'The node is not in the swarm cluster';
                 }
@@ -160,12 +160,13 @@ class NodeMonitor {
                     }
                 }
 
-                if (checkStatusSwarm !== checkOutputConsul || checkOutputSwarm !== checkOutputConsul) {
+                if (checkStatusSwarm !== checkStatusConsul || checkOutputSwarm !== checkOutputConsul) {
                     var consulNodeCheck = {
                         Node: s.Node.Node,
                         Address: s.Node.Address,
                         Check: {
                             Node: s.Node.Node,
+                            ServiceID: s.Service.ID,
                             CheckID: checkId,
                             Name: "Docker Node Check",
                             Notes: "Docker Node Check - cf-node-monitor",
@@ -174,21 +175,45 @@ class NodeMonitor {
                         }
                     }
                     consulNodeCheckUpdates.push(consulNodeCheck);
+                    console.log(util.format("Updating consul - %s - %s: %s - %s", nodeRef, s.Node.Node, checkStatusSwarm, checkOutputSwarm));
                 }
             }
             return Q.resolve(consulNodeCheckUpdates);
         })
-        .then(function(consulNodeCheckUpdates) {
-            return consulNodeCheckUpdates.map(function(consulNodeCheck){
-                return Q.nfcall(request.put, {
-                    headers: {'content-type': 'application/json'},
-                    url: util.format('http://%s:%s/v1/catalog/register', consul.host, consul.port),
-                    body: JSON.stringify(consulNodeCheck)
-                });
-            });
+        .then(function (consulNodeCheckUpdates) {
+            if (consulNodeCheckUpdates.length === 0) {
+                return Q.resolve();
+            }
+            else {
+                return Q.all(consulNodeCheckUpdates.map(consulNodeCheck =>
+                    Q.nfcall(request.put, {
+                            headers: {'content-type': 'application/json'},
+                            url: util.format('http://%s:%s/v1/catalog/register', consul._opts.host, consul._opts.port),
+                            body: JSON.stringify(consulNodeCheck)
+                        }
+                    )));
+            }
         })
-        .then();
+        .then(function (consulResponse) {
+            if (!consulResponse)
+                return Q.resolve();
+            else if (consulResponse.every(r => r[1] === "true")) {
+                console.log("Node statuses has been updated in Consul\n");
+                return Q.resolve();
+            }
+            else {
+                return Q.reject(new Error(util.format("Failed to update Consul with node status: %s\n", consulResponse)));
+            }
+        })
+        .catch(error => {
+            console.log(error.stack + "\n" );
+            }
+            );
+    }
 
+    start(){
+        console.log("Starting cf-node-monitor ...");
+        setInterval(() => this.updateNodeStatuses(),  this.consulUpdateInterval);
     }
 }
 module.exports = new NodeMonitor();

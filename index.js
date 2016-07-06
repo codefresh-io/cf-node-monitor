@@ -1,11 +1,5 @@
 var express = require('express');
 // var bodyParser = require('body-parser');
-
-var util = require('util');
-var fs = require('fs');
-var Docker = require('dockerode');
-var request = require('request');
-var Q = require('q');
 //app.use(bodyParser.json());
 
 var nodeMonitor = require('./NodeMonitor');

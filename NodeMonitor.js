@@ -7,6 +7,15 @@ var Docker = require('dockerode');
 var request = require('request');
 var Q = require('q');
 
+// set logger
+var winston = require('winston');
+var logger = new (winston.Logger)({
+                 transports: [
+                      new (winston.transports.Console)({
+                            timestamp: function() {return new Date().toISOString().replace(/T|Z/g, " ").trim();}
+                      })]
+});
+
 var fromCallback = function (fn) {
     var deferred = Q.defer();
     fn(function (err, data) {
@@ -152,7 +161,7 @@ class NodeMonitor {
                     var swarmNode = swarmStatus.NodesData[nodeRef];
                     if (swarmNode.Error && swarmNode.Error !== "(none)" || swarmNode.Status !== "Healthy") {
                         checkStatusSwarm = 'failing';
-                        checkOutputSwarm = swarmNode.Error;
+                        checkOutputSwarm = swarmNode.Error || "";
                     }
                     else {
                         checkStatusSwarm = 'passing';
@@ -175,7 +184,7 @@ class NodeMonitor {
                         }
                     }
                     consulNodeCheckUpdates.push(consulNodeCheck);
-                    console.log(util.format("Updating consul - %s - %s: %s - %s", nodeRef, s.Node.Node, checkStatusSwarm, checkOutputSwarm));
+                    logger.info(util.format("Updating consul - %s - %s: %s - %s", nodeRef, s.Node.Node, checkStatusSwarm, checkOutputSwarm));
                 }
             }
             return Q.resolve(consulNodeCheckUpdates);
@@ -198,7 +207,7 @@ class NodeMonitor {
             if (!consulResponse)
                 return Q.resolve();
             else if (consulResponse.every(r => r[1] === "true")) {
-                console.log("Node statuses has been updated in Consul\n");
+                logger.info("Node statuses has been updated in Consul\n");
                 return Q.resolve();
             }
             else {
@@ -206,13 +215,13 @@ class NodeMonitor {
             }
         })
         .catch(error => {
-            console.log(error.stack + "\n" );
+            logger.error(error.stack + "\n" );
             }
             );
     }
 
     start(){
-        console.log("Starting cf-node-monitor ...");
+        logger.info("Starting cf-node-monitor ...");
         setInterval(() => this.updateNodeStatuses(),  this.consulUpdateInterval);
     }
 }

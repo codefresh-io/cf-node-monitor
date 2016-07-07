@@ -2,7 +2,6 @@
  * Default config file for local env - to be replaces by configuration manager
  */
 path = require('path');
-
 var certPath = path.join(__dirname, '..', 'certs');
 
 var config = {

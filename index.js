@@ -3,6 +3,7 @@ var express = require('express');
 //app.use(bodyParser.json());
 
 var nodeMonitor = require('./NodeMonitor');
+var config = require('./config');
 
 var app = express();
 var router  = express.Router();
@@ -16,5 +17,5 @@ router.get('/', function(req, res) {
 
 nodeMonitor.start();
 
-app.listen(3999);
+app.listen(config.servicePort);
 

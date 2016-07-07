@@ -16,6 +16,8 @@ var logger = new (winston.Logger)({
                       })]
 });
 
+var config = require("./config");
+
 var fromCallback = function (fn) {
     var deferred = Q.defer();
     fn(function (err, data) {
@@ -29,36 +31,35 @@ var fromCallback = function (fn) {
     return deferred.promise;
 };
 var consul       = require('consul')({
-    host: 'consul',
-    port: '8500',
+    host: config.consul.host,
+    port: config.consul.port,
     promisify: fromCallback
 });
 
 class NodeMonitor {
 
     constructor(){
-        this.consulUpdateInterval = 10000;
-        this.certPath = path.join(__dirname, '..', 'certs');
-        this.caCertFile = path.join(this.certPath, 'ca.pem');
-        this.clientCertFile = path.join(this.certPath, 'cert.pem');
-        this.clientCertKeyFile = path.join(this.certPath, 'key.pem');
+
     }
 
     getDockerSwarm(){
-        var self = this;
+
         return consul.health.service({service: 'swarm-man', passing: true})
         .then(function(srv){
             if (!srv || srv.length === 0) {
                 return Q.reject(new Error("swarm-man service is not available"));
             }
-            var addr             = srv[0].Service.Address;
-            var port             = srv[0].Service.Port;
+            // get random from array of services
+            var srvInd = Math.floor( Math.random() * srv.length);
+            var addr             = srv[srvInd].Service.Address;
+            var port             = srv[srvInd].Service.Port;
             return Q.all(
-                [Q.nfcall(fs.readFile, self.caCertFile, 'utf8'),
-                    Q.nfcall(fs.readFile, self.clientCertFile, 'utf8'),
-                    Q.nfcall(fs.readFile, self.clientCertKeyFile, 'utf8')])
+                [Q.nfcall(fs.readFile, config.tls.caCertFile, 'utf8'),
+                    Q.nfcall(fs.readFile, config.tls.clientCertFile, 'utf8'),
+                    Q.nfcall(fs.readFile, config.tls.clientCertKeyFile, 'utf8')])
             .spread(function (caCert, clientCert, clientCertKey) {
-                var docker = new Docker({
+                var docker;
+                docker = new Docker({
                     host: addr,
                     port: port,
                     ca: caCert,
@@ -132,7 +133,7 @@ class NodeMonitor {
     }
 
     updateNodeStatuses() {
-        var checkId = "service:docker-node";
+        var checkId = config.checkId;
 
         return Q.all([ this.getSwarmStatus(),
                        consul.health.service({service: 'docker-node'})])
@@ -181,6 +182,9 @@ class NodeMonitor {
                             Notes: "Docker Node Check - cf-node-monitor",
                             Status: checkStatusSwarm,
                             Output: checkOutputSwarm
+                        },
+                        "WriteRequest": {
+                            "Token": config.consul.aclToken
                         }
                     }
                     consulNodeCheckUpdates.push(consulNodeCheck);
@@ -222,7 +226,7 @@ class NodeMonitor {
 
     start(){
         logger.info("Starting cf-node-monitor ...");
-        setInterval(() => this.updateNodeStatuses(),  this.consulUpdateInterval);
+        setInterval(() => this.updateNodeStatuses(),  config.consulUpdateInterval);
     }
 }
 module.exports = new NodeMonitor();

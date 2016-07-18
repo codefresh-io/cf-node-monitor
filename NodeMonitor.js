@@ -6,17 +6,19 @@ var path = require('path');
 var Docker = require('dockerode');
 var request = require('request');
 var Q = require('q');
+var config = require("./config");
 
 // set logger
 var winston = require('winston');
 var logger = new (winston.Logger)({
-                 transports: [
-                      new (winston.transports.Console)({
-                            timestamp: function() {return new Date().toISOString().replace(/T|Z/g, " ").trim();}
-                      })]
+                     level: config.debugLevel || 'info',
+                     transports: [
+                          new (winston.transports.Console)({
+                                timestamp: function() {return new Date().toISOString().replace(/T|Z/g, " ").trim();}
+                          })]
 });
 
-var config = require("./config");
+
 
 var fromCallback = function (fn) {
     var deferred = Q.defer();
@@ -42,8 +44,108 @@ class NodeMonitor {
 
     }
 
-    getDockerSwarm(){
+    getDockerCerts(){
+        return Q.all(
+            [Q.nfcall(fs.readFile, config.tls.caCertFile, 'utf8'),
+                Q.nfcall(fs.readFile, config.tls.clientCertFile, 'utf8'),
+                Q.nfcall(fs.readFile, config.tls.clientCertKeyFile, 'utf8')])
+    }
 
+    getDockerInfo(addr, port){
+        return this.getDockerCerts()
+            .spread(function (caCert, clientCert, clientCertKey) {
+                var docker;
+                docker = new Docker({
+                    host: addr,
+                    port: port,
+                    ca: caCert,
+                    cert: clientCert,
+                    key: clientCertKey
+                });
+                return Q.ninvoke(docker, "info");
+            })
+            .then(dockerInfo => {
+                return Q.resolve({Address: util.format('%s:%s', addr, port),
+                        Status: "passing",
+                        Error: ""
+                        });
+            })
+            .catch(error => {
+                return Q.resolve({Address: util.format('%s:%s', addr, port),
+                    Status: "failing",
+                    Error: error.toString()
+                });
+            })
+
+    }
+
+    updateNodeStatuses(){
+        var checkId = config.checkId;
+        logger.debug("Entering updateNodeStatuses");
+        return consul.health.service({service: 'docker-node'})
+        .then(nodeServices => {
+            return Q.all(nodeServices.map(s => Q.delay(Math.floor(Math.random() * nodeServices.length * 300))
+                .then(() => this.getDockerInfo(s.Service.Address, s.Service.Port))
+                .then((dockerInfo) => {
+                    // logger.log('debug', `Check node ${JSON.stringify(dockerInfo)}`);
+                    var nodeRef = dockerInfo.Address;
+                    var checkStatus = dockerInfo.Status;
+                    var checkOutput = dockerInfo.Error;
+                    var checkStatusConsul, checkOutputConsul;
+                    // Parse current service status from consul
+                    if (s.Checks) {
+                        var nodeCheckArr = s.Checks.filter(c => c.CheckID === checkId);
+                        if (nodeCheckArr.length > 0) {
+                            checkStatusConsul = nodeCheckArr[0].Status;
+                            checkOutputConsul = nodeCheckArr[0].Output;
+                        }
+                    }
+                    if (checkStatus !== checkStatusConsul || checkOutput !== checkOutputConsul) {
+                        var consulNodeCheck = {
+                            Node: s.Node.Node,
+                            Address: s.Node.Address,
+                            Check: {
+                                Node: s.Node.Node,
+                                ServiceID: s.Service.ID,
+                                CheckID: checkId,
+                                Name: "Docker Node Check",
+                                Notes: "Docker Node Check - cf-node-monitor",
+                                Status: checkStatus,
+                                Output: checkOutput
+                            },
+                            "WriteRequest": {
+                                "Token": config.consul.aclToken
+                            }
+                        }
+
+                        return  Q().then(() => {
+                                logger.info(util.format("Updating consul - %s - %s: %s - %s", nodeRef, s.Node.Node, checkStatus, checkOutput))
+                                return Q.nfcall(request.put, {
+                                    headers: {'content-type': 'application/json'},
+                                    url: util.format('http://%s:%s/v1/catalog/register', consul._opts.host, consul._opts.port),
+                                    body: JSON.stringify(consulNodeCheck)
+                                })
+                            })
+                        .then(function (consulResponse) {
+                            if (consulResponse[1] === "true") {
+                                logger.info("Node statuses has been updated in Consul\n");
+                                return Q.resolve();
+                            }
+                            else {
+                                return Q.reject(new Error(util.format("Failed to update Consul with node status: %s\n", consulResponse)));
+                            }
+                        })
+                    }
+
+                })
+                .catch(error => {
+                        logger.error(error.stack + "\n" );
+                    })
+            )
+        )});
+    }
+
+    getDockerSwarm(){
         return consul.health.service({service: 'swarm-man', passing: true})
         .then(function(srv){
             if (!srv || srv.length === 0) {
@@ -132,7 +234,9 @@ class NodeMonitor {
         .catch(err => Q.reject(err));
     }
 
-    updateNodeStatuses() {
+
+
+    updateSwarmNodeStatuses() {
         var checkId = config.checkId;
 
         return Q.all([ this.getSwarmStatus(),
@@ -222,6 +326,11 @@ class NodeMonitor {
             logger.error(error.stack + "\n" );
             }
             );
+    }
+
+    startSwarmMonitor(){
+        logger.info("Starting cf-node-monitor (swarm mode)...");
+        setInterval(() => this.updateSwarmNodeStatuses(),  config.consulUpdateInterval);
     }
 
     start(){

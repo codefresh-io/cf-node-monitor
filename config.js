@@ -20,7 +20,8 @@ var config = {
     servicePort: '3999',
     checkId: "service:docker-node",
     consulUpdateInterval: 10000,
-    swarmPath: 'development-docker'
+    swarmPath: 'development-docker',
+    debugLevel: 'debug'
 };
 
 module.exports = config;

@@ -60,9 +60,10 @@ class NodeMonitor {
                     port: port,
                     ca: caCert,
                     cert: clientCert,
-                    key: clientCertKey
+                    key: clientCertKey,
+                    timeout: 10000
                 });
-                return Q.ninvoke(docker, "info");
+                return Q.ninvoke(docker, "listContainers");
             })
             .then(dockerInfo => {
                 return Q.resolve({Address: util.format('%s:%s', addr, port),

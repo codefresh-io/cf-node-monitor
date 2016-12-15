@@ -61,7 +61,7 @@ class NodeMonitor {
                     ca: caCert,
                     cert: clientCert,
                     key: clientCertKey,
-                    timeout: 10000
+                    timeout: 30000
                 });
                 return Q.ninvoke(docker, "listContainers");
             })

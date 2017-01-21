@@ -6,7 +6,7 @@ var certPath = path.join(__dirname, '..', 'certs');
 
 var config = {
     consul: {
-        host: 'codefresh.dev',
+        host: 'consul',
         port: '8500',
         aclToken: ''
     },

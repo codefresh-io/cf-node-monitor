@@ -21,7 +21,7 @@ var config = {
     checkId: "service:docker-node",
     consulUpdateInterval: 10000,
     swarmPath: 'development-docker',
-    debugLevel: 'debug'
+    debugLevel: process.env.DEBUG_LEVEL || 'info'
 };
 
 module.exports = config;

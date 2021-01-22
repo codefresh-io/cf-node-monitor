@@ -10,7 +10,7 @@
   "author": "Codefresh",
   "license": "ISC",
   "dependencies": {
-    "consul": "^0.25.0",
+    "consul": "^0.39.0",
     "dockerode": "^2.2.10",
     "express": "^4.13.4",
     "ip": "^1.1.3",

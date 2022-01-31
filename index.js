@@ -15,7 +15,5 @@ router.get('/', function(req, res) {
     nodeMonitor.getSwarmStatus().done( swarmStatus => res.send(swarmStatus), err => res.status(400).send(err.toString())  );
 });
 
-nodeMonitor.start();
-
 app.listen(config.servicePort);
 
